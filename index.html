@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#f8f9fc" />
+  <meta name="description" content="Looply finds a better way to every stop and back. Beautiful, no-sign-in multi-stop route planning." />
+  <title>Looply — Every stop. One smooth route.</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
+  <link rel="preconnect" href="https://unpkg.com" crossorigin />
+  <link rel="preconnect" href="https://photon.komoot.io" crossorigin />
+  <link rel="preconnect" href="https://router.project-osrm.org" crossorigin />
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <link href="styles.css" rel="stylesheet" />
+  <script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <header class="topbar">
+        <a class="brand" href="./" aria-label="Looply home">
+          <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 40 40" fill="none"><path d="M11.5 23.5c0-7.2 6-13 13-13s12.4 5.6 12.4 12.7-5.6 12.7-12.4 12.7c-7.3 0-13.1-5.5-13.1-12.6 0-6.8 5-12.2 11.3-12.2" stroke="white" stroke-width="5" stroke-linecap="round"/><circle cx="11.5" cy="23.3" r="6.5" fill="white"/><circle cx="11.5" cy="23.3" r="2.3" fill="#4263F5"/></svg></span>
+          <span>looply<span class="brand-dot">.</span></span>
+        </a>
+        <span class="header-tag"><span class="live-dot"></span>No sign-in needed</span>
+      </header>
+
+      <div class="sidebar-scroll" id="sidebarScroll">
+        <div class="intro">
+          <div class="eyebrow"><svg viewBox="0 0 24 24" fill="none"><path d="M4 15.5c4-8.5 9.5-8.5 12.5-2.5M13.5 13h3.8V9.2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> THE SMARTER WAY TO GO</div>
+          <h1>Every stop.<br><em>One smooth route.</em></h1>
+          <p>Add your destinations. We'll find a great driving route that starts and ends right where you want.</p>
+        </div>
+
+        <div class="route-mode">
+          <div class="route-mode-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M8 5.7a7 7 0 1 1-4 6.3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M3 5.7h5v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <div><strong>Round trip</strong><span>Automatically returns to your start</span></div>
+          <span class="mode-check" aria-label="Round trip enabled"><svg viewBox="0 0 24 24" fill="none"><path d="m5 12 4.5 4.5L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        </div>
+
+        <section class="planner-section" aria-label="Route planner">
+          <div class="section-title-row"><h2>Plan your route</h2><button id="clearBtn" class="text-button" type="button">Clear all</button></div>
+          <div class="route-entry">
+            <div class="rail" aria-hidden="true"><span class="rail-start"></span><span class="rail-line"></span><span class="rail-stop"></span></div>
+            <div class="route-fields">
+              <div class="field-group start-group" data-kind="start">
+                <label for="startInput">START & FINISH</label>
+                <div class="field-shell">
+                  <span class="field-search-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="10.8" cy="10.8" r="6.7" stroke="currentColor" stroke-width="1.8"/><path d="m16 16 4.2 4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+                  <input id="startInput" type="text" placeholder="Enter your starting location" autocomplete="off" spellcheck="false" aria-autocomplete="list" aria-expanded="false" />
+                  <button class="field-end-button" type="button" id="locateBtn" title="Use my current location" aria-label="Use my current location"><svg viewBox="0 0 24 24" fill="none"><path d="m20 4-7.2 16-2.5-6.3L4 11.2 20 4Z" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></svg></button>
+                  <div class="suggestions" role="listbox" hidden></div>
+                </div>
+              </div>
+              <div class="stops-heading"><label>YOUR STOPS <span id="stopCount" class="stops-count">0 added</span></label><span class="reorder-hint">Drag to reorder</span></div>
+              <div id="stopsList" class="stops-list" aria-label="Stops list"></div>
+            </div>
+          </div>
+          <div class="add-actions">
+            <button type="button" id="addStopBtn" class="add-stop-button"><svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Add another stop</button>
+            <button type="button" id="pasteBtn" class="paste-button" title="Paste many addresses"><svg viewBox="0 0 24 24" fill="none"><rect x="8" y="4" width="12" height="16" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M16 4V3H5a2 2 0 0 0-2 2v12h1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg> Paste list</button>
+          </div>
+        </section>
+
+        <section class="results" id="results" hidden aria-live="polite">
+          <div class="results-heading"><span class="results-sparkle"><svg viewBox="0 0 24 24" fill="none"><path d="m12 2 2.1 6.1L20 10l-5.9 2L12 18l-2.1-6L4 10l5.9-1.9L12 2Z" fill="currentColor"/></svg></span><div><h2>Your optimized loop</h2><p id="routeMethod">Road-time optimized route</p></div></div>
+          <div class="stat-grid">
+            <div class="stat"><span>DISTANCE</span><strong id="totalDistance">—</strong></div>
+            <div class="stat"><span>DRIVE TIME</span><strong id="totalDuration">—</strong></div>
+            <div class="stat"><span>STOPS</span><strong id="totalStops">—</strong></div>
+          </div>
+          <div class="order-header">STOP ORDER <span>START → FINISH</span></div>
+          <ol id="routeOrder" class="route-order"></ol>
+          <div class="result-actions"><button type="button" id="copyBtn" class="secondary-action"><svg viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" stroke="currentColor" stroke-width="1.8"/></svg> Copy route</button><button type="button" id="shareBtn" class="secondary-action"><svg viewBox="0 0 24 24" fill="none"><path d="M12 15V3m0 0L7.5 7.5M12 3l4.5 4.5M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> Share link</button></div>
+          <p class="estimation-note">Based on estimated road travel times, not live traffic. Always verify driving conditions.</p>
+        </section>
+
+        <button type="button" id="sampleBtn" class="sample-link"><span class="sample-icon"><svg viewBox="0 0 24 24" fill="none"><path d="m8 9 3 3-3 3M13 15h4M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span><strong>Just exploring?</strong><small>Load an example route around the Bay Area</small></span><svg class="sample-arrow" viewBox="0 0 24 24" fill="none"><path d="m9 5 7 7-7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </div>
+
+      <footer class="sidebar-footer">
+        <div class="footer-top"><div class="privacy-label"><svg viewBox="0 0 24 24" fill="none"><rect x="5" y="10" width="14" height="11" rx="2" stroke="currentColor" stroke-width="1.7"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="1.7"/></svg><span>Saved on this device. No account.</span></div><span id="optimizeHint">Ready when you are</span></div>
+        <button type="button" id="optimizeBtn" class="optimize-button"><span class="button-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M4 17.5c3.1-7.7 8.3-9.2 13.2-4.2M14 10.5l3.6 2.8-3 3.2" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="4" cy="17.5" r="2" fill="currentColor"/><path d="m19 4 .55 1.45L21 6l-1.45.55L19 8l-.55-1.45L17 6l1.45-.55L19 4Z" fill="currentColor"/></svg></span><span id="optimizeBtnText">Find my best route</span><span id="optimizeBtnArrow" class="button-arrow"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
+        <div class="footer-fine"><span>Made for the scenic route. Optimized for the practical one.</span><span class="footer-heart">✳</span></div>
+      </footer>
+    </aside>
+
+    <main class="map-stage" aria-label="Interactive route map">
+      <div id="map" class="map-canvas" aria-label="Interactive map. Select a location to add it to your route."></div>
+      <div class="map-search-panel" role="search" aria-label="Find a place on the map">
+        <div class="field-shell map-search-shell">
+          <span class="field-search-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="10.8" cy="10.8" r="6.7" stroke="currentColor" stroke-width="1.8"/><path d="m16 16 4.2 4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+          <input id="mapSearchInput" type="search" placeholder="Search the map for a place…" autocomplete="off" spellcheck="false" aria-label="Search anywhere on the map" aria-autocomplete="list" aria-expanded="false" />
+          <div class="suggestions" role="listbox" hidden></div>
+        </div>
+        <span id="mapStatus" class="map-connection-status"><span class="connection-dot"></span><span id="mapStatusText">Connecting to live map…</span></span>
+      </div>
+      <div id="mapFallback" class="map-fallback" aria-hidden="true">
+        <svg class="fallback-roads" viewBox="0 0 1000 900" preserveAspectRatio="xMidYMid slice"><path d="M-120 660Q190 670 375 410T1030 200"/><path d="M-30 370Q310 490 570 290T1020-80"/><path d="M190-60Q160 280 410 480T810 990"/><path d="M620-40Q480 240 700 540T1010 850"/><path d="M-80 190Q280 310 560 550T1100 780"/><path d="M-50 820Q280 640 550 720T1000 600"/></svg>
+        <div class="fallback-compass">N</div>
+      </div>
+      <div class="map-toolbar" aria-label="Map controls">
+        <div class="toolbar-stack"><button id="zoomInBtn" type="button" title="Zoom in" aria-label="Zoom in"><svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button><div class="toolbar-divider"></div><button id="zoomOutBtn" type="button" title="Zoom out" aria-label="Zoom out"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button></div>
+        <button id="fitBtn" type="button" title="Fit route to view" aria-label="Fit route to view"><svg viewBox="0 0 24 24" fill="none"><path d="M8 4H4v4m12-4h4v4M4 16v4h4m12-4v4h-4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button id="mapStyleBtn" type="button" title="Toggle map appearance" aria-label="Toggle light or dark map"><svg viewBox="0 0 24 24" fill="none"><path d="M20.5 13.2A8.5 8.5 0 0 1 10.8 3.5 8.5 8.5 0 1 0 20.5 13.2Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button>
+      </div>
+      <div class="map-overlay-heading" id="mapOverlayHeading"><div class="map-overlay-kicker"><span class="sparkle-small">✳</span> INTRODUCING LOOPLY</div><strong>Less zigzag.<br><span>More let's go.</span></strong><p>Smart route planning, thoughtfully simple.</p></div>
+      <div class="map-overlay-bottom" id="mapOverlayBottom"><span class="map-overlay-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M8 5.5a7.1 7.1 0 1 1-4 6.5M3 5.5h5v5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><strong>Make the map yours</strong><span>Search a place or click the map to add a stop.</span></div></div>
+      <div class="map-network-warning" id="mapNetworkWarning" hidden><svg viewBox="0 0 24 24" fill="none"><path d="M12 9v4m0 4h.01M10 3.8 2.3 17.2A2 2 0 0 0 4 20h16a2 2 0 0 0 1.7-2.8L14 3.8a2.3 2.3 0 0 0-4 0Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg> Could not load the online map. Check your connection and <button id="retryMapBtn" type="button">retry</button>.</div>
+      <div class="map-bottom-brand">© <a href="https://openfreemap.org/" target="_blank" rel="noopener">OpenFreeMap</a> · <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a></div>
+      <button type="button" id="mobilePlannerBtn" class="mobile-planner-button"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg> Plan route</button>
+      <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="pasteModal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pasteTitle">
+      <div class="modal-head"><div class="modal-icon"><svg viewBox="0 0 24 24" fill="none"><rect x="8" y="4" width="12" height="16" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M16 4V3H5a2 2 0 0 0-2 2v12h1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div><button type="button" id="closeModalBtn" class="modal-close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none"><path d="m5 5 14 14M19 5 5 19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button></div>
+      <h2 id="pasteTitle">Add stops in seconds.</h2><p>Paste one address per line. We'll add them all to your route.</p>
+      <textarea id="bulkTextarea" rows="7" placeholder="1 Market Street, San Francisco, CA&#10;Golden Gate Park, San Francisco, CA&#10;Ferry Building, San Francisco, CA"></textarea>
+      <div class="modal-note">Up to 20 total stops · Blank lines are ignored</div>
+      <button id="importBtn" type="button" class="modal-submit">Add these stops <svg viewBox="0 0 24 24" fill="none"><path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
+  </div>
+</body>
+</html>
