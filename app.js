@@ -14,6 +14,8 @@
   const GEOCODER = 'https://photon.komoot.io/api/';
   const OSRM = 'https://router.project-osrm.org';
   const DEFAULT_CENTER = [-122.335, 37.542];
+  const SEARCH_COUNTRY = 'US'; // US-only launch: never show foreign matches
+
   const PIN_ICON = '<svg viewBox="0 0 24 24" fill="none"><path d="M19 10c0 5.2-7 11-7 11S5 15.2 5 10a7 7 0 1 1 14 0Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.4" stroke="currentColor" stroke-width="1.6"/></svg>';
   const CROSS_ICON = '<svg viewBox="0 0 24 24" fill="none"><path d="M6 6 18 18M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
   const GRIP_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="5" r="1.8"/><circle cx="16" cy="5" r="1.8"/><circle cx="9" cy="12" r="1.8"/><circle cx="16" cy="12" r="1.8"/><circle cx="9" cy="19" r="1.8"/><circle cx="16" cy="19" r="1.8"/></svg>';
@@ -38,6 +40,7 @@
   let toastTimeout = null;
   let routeAbort = null;
   let draggedStopId = null;
+  let navigationSteps = []; let navigationIndex = 0; let gpsWatch = null; let navigationVoice = true; let lastSpokenIndex = -1; let lastGPS = null;
   let selectedMarker = null;
   let reverseAbort = null;
   let lastPhotonRequest = 0;
@@ -96,6 +99,7 @@
 
   function resetRoute() {
     if (state.busy && routeAbort) routeAbort.abort();
+    stopNavigation();
     if (state.route) {
       state.route = null;
       $('results').hidden = true;
@@ -131,6 +135,19 @@
     refreshStopCount();
   }
 
+  function isUSFeature(feature) {
+    const p = feature?.properties || {};
+    const code = String(p.countrycode || p.countryCode || '').toUpperCase();
+    const name = String(p.country || '').trim().toLowerCase();
+    // An absent country is unverified, not permission to place a pin.
+    return code === SEARCH_COUNTRY || ['united states', 'united states of america', 'usa', 'us'].includes(name);
+  }
+  function enteredHouseNumber(query) { return /^\s*(\d+[a-z]?)\b/i.exec(query)?.[1]?.toLowerCase() || ''; }
+  function matchingFeatures(data, query) {
+    const number = enteredHouseNumber(query);
+    return (data.features || []).filter(f => f.geometry?.type === 'Point' && validPoint(f.geometry.coordinates) && isUSFeature(f))
+      .filter(f => !number || String(f.properties?.housenumber || '').toLowerCase() === number);
+  }
   function featureLabel(feature) {
     const p = feature.properties || {};
     const base = [p.housenumber && p.street ? `${p.housenumber} ${p.street}` : (p.name || p.street), p.city || p.town || p.village || p.county, p.state, p.country].filter(Boolean);
@@ -180,7 +197,7 @@
     if (url.includes('/api/') || url.startsWith(GEOCODER)) {
       const original = new URL(url);
       const api = new URL('/api/search', location.origin);
-      for (const name of ['q','limit','lat','lon']) if (original.searchParams.has(name)) api.searchParams.set(name, original.searchParams.get(name));
+      for (const name of ['q','limit','lat','lon','countrycode']) if (original.searchParams.has(name)) api.searchParams.set(name, original.searchParams.get(name));
       try {
         const response = await fetch(api, {signal});
         if (response.ok) return await response.json();
@@ -194,11 +211,12 @@
     u.searchParams.set('q', query);
     u.searchParams.set('limit', String(limit));
     u.searchParams.set('lang', 'en');
-    // Only bias searches once the user has picked a start, not toward a default map location.
-    if (validPoint(state.start.coordinates)) {
-      u.searchParams.set('lat', state.start.coordinates[1]);
-      u.searchParams.set('lon', state.start.coordinates[0]);
-    }
+    u.searchParams.set('countrycode', SEARCH_COUNTRY);
+    // Prefer the chosen start, otherwise favor the initial Bay Area map;
+    // geographic bias is NOT a restrictive 50-mile search radius.
+    const center = validPoint(state.start.coordinates) ? state.start.coordinates : DEFAULT_CENTER;
+    u.searchParams.set('lat', center[1]);
+    u.searchParams.set('lon', center[0]);
     return u.toString();
   }
   function closeSuggestions() {
@@ -248,8 +266,13 @@
         const data = await fetchGeocoder(geoUrl(query), controller.signal, 12000);
         if (controller.signal.aborted || input !== suggestionsOwner || input.value !== query) return;
         panel.replaceChildren();
-        const features = (data.features || []).filter(f => f.geometry?.type === 'Point' && validPoint(f.geometry.coordinates));
-        if (!features.length) { panel.innerHTML = '<div class="suggestion-empty">No matches. Try a more specific address.</div>'; return; }
+        const features = matchingFeatures(data, query);
+        if (!features.length) {
+          panel.innerHTML = enteredHouseNumber(query)
+            ? '<div class="suggestion-empty">No exact U.S. house-number match. Add city, state and ZIP, or choose the building on the map. Street-only pins are not accepted as houses.</div>'
+            : '<div class="suggestion-empty">No U.S. matches. Try a city, state, or ZIP code.</div>';
+          return;
+        }
         for (const feature of features) {
           const button = document.createElement('button');
           button.type = 'button';
@@ -324,7 +347,7 @@
       handle.setAttribute('aria-label', `Move stop ${index + 1} down one position`);
       handle.addEventListener('click', () => moveStop(stop.id, 1));
       handle.addEventListener('keydown', e => { if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); moveStop(stop.id, e.key === 'ArrowUp' ? -1 : 1); } });
-      row.append(number, shell, remove, handle);
+      row.append(number, shell, handle, remove);
       row.addEventListener('dragstart', e => { if (e.target.tagName === 'INPUT') { e.preventDefault(); return; } draggedStopId = stop.id; row.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', stop.id); });
       row.addEventListener('dragover', e => { e.preventDefault(); row.classList.add('drag-over'); e.dataTransfer.dropEffect = 'move'; });
       row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
@@ -375,9 +398,9 @@
     let data;
     try { data = await fetchGeocoder(geoUrl(search, 5), signal, 16000); }
     catch (err) { if (err.name === 'AbortError') throw err; throw new Error(`Couldn't search for “${search}”. Check the internet connection or try again.`); }
-    const enteredNumber = /^\s*(\d+[a-z]?)\b/i.exec(search)?.[1]?.toLowerCase();
-    const candidates = (data.features || []).filter(f => f.geometry?.type === 'Point' && validPoint(f.geometry.coordinates));
-    const feature = enteredNumber ? candidates.find(f => String(f.properties?.housenumber || '').toLowerCase() === enteredNumber) : candidates[0];
+    const enteredNumber = enteredHouseNumber(search);
+    const candidates = matchingFeatures(data, search);
+    const feature = candidates[0];
     if (!feature) throw new Error(enteredNumber
       ? `Couldn't verify house number ${enteredNumber} for “${search}”. Choose an address suggestion or pin the building on the map. No street-only substitute was used.`
       : `Couldn't find “${search}”. Try a more specific address or choose a suggestion.`);
@@ -549,6 +572,92 @@
     url.searchParams.set('travelmode', 'driving');
     return url.toString();
   }
+  function orderedRoutePoints() {
+    if (!state.route || !validPoint(state.start.coordinates)) return [];
+    return [state.start.coordinates, ...state.route.orderedStops.map(p => p.coordinates), state.start.coordinates].filter(validPoint);
+  }
+  const coordinateString = p => `${p[1].toFixed(6)},${p[0].toFixed(6)}`;
+  function googleLink(points) {
+    const url = new URL('https://www.google.com/maps/dir/');
+    url.searchParams.set('api','1'); url.searchParams.set('origin',coordinateString(points[0]));
+    url.searchParams.set('destination',coordinateString(points[points.length - 1])); url.searchParams.set('travelmode','driving');
+    if (points.length > 2) url.searchParams.set('waypoints',points.slice(1,-1).map(coordinateString).join('|'));
+    return url.toString();
+  }
+  function appleLink(from,to) {
+    const u = new URL('https://maps.apple.com/');
+    u.searchParams.set('saddr',coordinateString(from)); u.searchParams.set('daddr',coordinateString(to)); u.searchParams.set('dirflg','d');
+    return u.toString();
+  }
+  function openGoogleRoute() {
+    const points=orderedRoutePoints(); if(points.length<3)return;
+    // Conservative mobile-compatible chunks: 1 intermediate stop per link, with overlap.
+    const segments=[];
+    for (let i=0; i<points.length-1; i+=2) segments.push(points.slice(i,Math.min(i+3,points.length)));
+    window.open(googleLink(segments[0]),'_blank','noopener,noreferrer');
+    if(segments.length>1) {
+      const box=$('exportNotice'); box.replaceChildren();
+      box.append(document.createTextNode(`Google Maps route ${1} of ${segments.length} opened. Continue with: `));
+      segments.slice(1).forEach((pts,i)=>{ const a=document.createElement('a'); a.href=googleLink(pts); a.target='_blank'; a.rel='noopener noreferrer'; a.textContent=`Segment ${i+2}`; box.append(a, document.createTextNode('  ')); });
+      toast(`${segments.length} route segments. Open the remaining links in order.`);
+    } else $('exportNotice').textContent='Google Maps opened with the complete route. It may choose different roads.';
+  }
+  function openAppleRoute() {
+    const pts=orderedRoutePoints(); if(pts.length<3)return;
+    window.open(appleLink(pts[0],pts[1]),'_blank','noopener,noreferrer');
+    const box=$('exportNotice'); box.replaceChildren();
+    box.append(document.createTextNode(`Apple Maps leg 1 of ${pts.length-1} opened. Open these in order to finish the loop: `));
+    for(let i=1;i<pts.length-1;i++){const a=document.createElement('a');a.href=appleLink(pts[i],pts[i+1]);a.target='_blank';a.rel='noopener noreferrer';a.textContent=`Leg ${i+1}`;box.append(a,document.createTextNode('  '));}
+    toast('Apple Maps opens one leg at a time; all legs are listed here.');
+  }
+  function speakNav(message) {
+    if (!navigationVoice || !('speechSynthesis' in window)) return;
+    speechSynthesis.cancel(); const u=new SpeechSynthesisUtterance(message); u.rate=.96; u.lang='en-US'; speechSynthesis.speak(u);
+  }
+  function navStepText(step) {
+    const m=step.maneuver||{}; const road=step.name?` onto ${step.name}`:'';
+    const type=m.type||''; const modifier=m.modifier||'';
+    if(type==='arrive')return 'Arrive at your destination';
+    if(type==='depart')return `Head ${modifier||'out'}${road}`;
+    if(type==='roundabout'||type==='rotary')return `Enter the roundabout${road}`;
+    if(type==='turn'||type==='end of road'||type==='fork')return `Turn ${modifier||'ahead'}${road}`;
+    if(type==='merge')return `Merge ${modifier}${road}`;
+    if(type==='on ramp'||type==='off ramp')return `Take the ${type}${road}`;
+    if(type==='continue'||type==='new name')return `Continue${road}`;
+    return `Continue ${modifier}${road}`.trim();
+  }
+  function showNavStep(announce=false) {
+    const s=navigationSteps[navigationIndex]; if(!s)return;
+    $('navStepTitle').textContent=navStepText(s);
+    $('navStepDistance').textContent=`Step ${navigationIndex+1} of ${navigationSteps.length} · ${formatDistance(s.distance||0)} on this step. Follow road signs and conditions.`;
+    $('prevTurnBtn').disabled=navigationIndex===0; $('nextTurnBtn').disabled=navigationIndex>=navigationSteps.length-1;
+    if(announce&&lastSpokenIndex!==navigationIndex){lastSpokenIndex=navigationIndex;speakNav(navStepText(s));}
+  }
+  function stopNavigation() {
+    if(gpsWatch!==null&&navigator.geolocation){navigator.geolocation.clearWatch(gpsWatch);gpsWatch=null;}
+    if('speechSynthesis' in window)speechSynthesis.cancel();
+    if($('navigationPanel'))$('navigationPanel').hidden=true;
+    navigationSteps=[];navigationIndex=0;lastSpokenIndex=-1;
+  }
+  async function startNavigation() {
+    if(!state.route)return;
+    $('navigationPanel').hidden=false;
+    $('navStepTitle').textContent='Loading driving directions…';
+    $('navStepDistance').textContent='Preparing guidance from routing data.';
+    const points=orderedRoutePoints();
+    try {
+      const url=`${OSRM}/route/v1/driving/${directionsUrl(points)}?steps=true&overview=full&geometries=geojson`;
+      const data=await fetchRouting(url,undefined,30000);
+      if(data.code!=='Ok'||!data.routes?.[0]?.legs?.length)throw new Error('No directions returned.');
+      navigationSteps=data.routes[0].legs.flatMap(leg=>leg.steps||[]).filter(step=>step.maneuver);
+      navigationIndex=0;lastSpokenIndex=-1;showNavStep(true);
+      // In-browser step review is NOT autonomous live turn-by-turn. GPS is shown as context only.
+      if(navigator.geolocation){gpsWatch=navigator.geolocation.watchPosition(pos=>{
+        lastGPS=[pos.coords.longitude,pos.coords.latitude];
+        if(mapLoaded)map.easeTo({center:lastGPS,zoom:Math.max(map.getZoom(),13),duration:600});
+      },()=>{}, {enableHighAccuracy:true,maximumAge:3000,timeout:12000});}
+    }catch(e){$('navStepTitle').textContent='Could not load driving instructions';$('navStepDistance').textContent='Use Apple Maps or Google Maps for live turn-by-turn guidance.';}
+  }
   function formatDistance(meters) { const mi = meters / 1609.344; return mi < 10 ? `${mi.toFixed(1)} mi` : `${Math.round(mi)} mi`; }
   function formatDuration(seconds) { const min = Math.round(seconds / 60); if (min < 60) return `${min} min`; const h = Math.floor(min / 60), m = min % 60; return m ? `${h}h ${m}m` : `${h}h`; }
   function renderResults() {
@@ -581,7 +690,7 @@
           nav.href = googleMapsLeg(from, to);
           nav.target = '_blank'; nav.rel = 'noopener noreferrer';
           nav.textContent = item.type === 'finish' ? 'Navigate back ↗' : 'Navigate this leg ↗';
-          nav.setAttribute('aria-label', `Open driving directions to ${item.name} in Google Maps`);
+          nav.setAttribute('aria-label', `Open this leg to ${item.name} in Google Maps`);
           detail.append(nav);
         }
       }
@@ -643,7 +752,7 @@
     $('mapSearchInput').disabled = true;
     try {
       const data = await fetchGeocoder(geoUrl(query, 5), controller.signal, 17000);
-      const feature = (data.features || []).find(f => f.geometry?.type === 'Point' && validPoint(f.geometry.coordinates));
+      const feature = matchingFeatures(data, query)[0];
       if (!feature) { toast('No map results for that place. Try a more specific search.', true); return; }
       const label = featureLabel(feature);
       $('mapSearchInput').value = label;
@@ -700,7 +809,7 @@
       u.searchParams.set('lang', 'en');
       const data = await fetchGeocoder(u.toString(), signal, 13000);
       if (signal.aborted) return;
-      const feature = (data.features || []).find(f => f.geometry?.type === 'Point');
+      const feature = (data.features || []).find(f => f.geometry?.type === 'Point' && isUSFeature(f));
       if (feature) {
         const found = featureLabel(feature);
         if (found && selectedMarker && validPoint(selectedMarker.getLngLat().toArray())) {
@@ -844,6 +953,13 @@
     $('sampleBtn').addEventListener('click', setExample);
     $('locateBtn').addEventListener('click', useCurrentLocation);
     $('copyBtn').addEventListener('click', copyRoute);
+    $('googleMapsBtn').addEventListener('click', openGoogleRoute);
+    $('appleMapsBtn').addEventListener('click', openAppleRoute);
+    $('startRouteBtn').addEventListener('click', startNavigation);
+    $('stopNavBtn').addEventListener('click', stopNavigation);
+    $('prevTurnBtn').addEventListener('click',()=>{navigationIndex=Math.max(0,navigationIndex-1);showNavStep(true);});
+    $('nextTurnBtn').addEventListener('click',()=>{navigationIndex=Math.min(navigationSteps.length-1,navigationIndex+1);showNavStep(true);});
+    $('voiceToggleBtn').addEventListener('click',()=>{navigationVoice=!navigationVoice;$('voiceToggleBtn').textContent=navigationVoice?'Voice on':'Voice off';if(!navigationVoice&&'speechSynthesis' in window)speechSynthesis.cancel();});
     $('shareBtn').addEventListener('click', shareRoute);
     $('pasteBtn').addEventListener('click', openPasteModal);
     $('closeModalBtn').addEventListener('click', closePasteModal);

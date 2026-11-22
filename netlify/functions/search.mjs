@@ -11,6 +11,7 @@ export default async (request) => {
   base.searchParams.set('key', key);
   base.searchParams.set('limit', String(limit));
   base.searchParams.set('language','en-US');
+  base.searchParams.set('countrySet','US');
   base.searchParams.set('typeahead','true');
   const lat = Number(url.searchParams.get('lat'));
   const lon = Number(url.searchParams.get('lon'));
@@ -22,12 +23,12 @@ export default async (request) => {
     const upstream = await fetch(base, {signal:AbortSignal.timeout(8000)});
     if (!upstream.ok) return Response.json({error:'Map provider unavailable',code:upstream.status}, {status:502});
     const data = await upstream.json();
-    const features = (data.results || []).filter(r => r.position && Number.isFinite(r.position.lat) && Number.isFinite(r.position.lon)).map(r => {
+    const features = (data.results || []).filter(r => r.position && Number.isFinite(r.position.lat) && Number.isFinite(r.position.lon) && ['US','USA'].includes(String(r.address?.countryCode || '').toUpperCase())).map(r => {
       const a = r.address || {};
       const street = a.streetName || a.street || '';
       const number = a.streetNumber ? String(a.streetNumber) : '';
       return { type:'Feature', geometry:{type:'Point',coordinates:[r.position.lon,r.position.lat]}, properties:{
-        name:r.poi?.name || '', housenumber:number,street,city:a.municipality || a.localName || '',state:a.countrySubdivision || '',country:a.country || '',
+        name:r.poi?.name || '', housenumber:number,street,city:a.municipality || a.localName || '',state:a.countrySubdivision || '',country:a.country || 'United States',countrycode:'US',
         accuracy: number ? 'address-provider' : (r.type === 'POI' ? 'poi' : 'approximate'), provider:'TomTom',
         fullAddress:a.freeformAddress || ''
       }};
